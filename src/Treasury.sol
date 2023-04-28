@@ -2,10 +2,11 @@
 pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "./IUniswap.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "./IUniswap.sol";
+import "./IUniswapV2.sol";
 
 interface IERC721Receiver {
     function onERC721Received(
@@ -24,13 +25,20 @@ contract Treasury is Ownable, ERC20, IERC721Receiver {
     int24 private constant MAX_TICK = -MIN_TICK;
     int24 private constant TICK_SPACING = 60;
     uint256 UniswapPositionTokenId;
+    uint256 totalSupplyForSushiSwap;
     string public NAME = "Treasury Smart Contract";
+
+    address public constant USDT = 0xC2C527C0CACF457746Bd31B2a698Fe89de2b6d49;
+    address public constant DAI = 0x11fE4B6AE13d2a6055C8D9cF65c55bac32B5d844;
+
+    address private constant FACTORY =
+        0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f;
+    address private constant ROUTER =
+        0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D;
 
     INonfungiblePositionManager public nonfungiblePositionManager =
         INonfungiblePositionManager(0xC36442b4a4522E871399CD717aBDD847Ab11FE88);
 
-    address public constant USDT = 0xC2C527C0CACF457746Bd31B2a698Fe89de2b6d49;
-    address public constant DAI = 0x11fE4B6AE13d2a6055C8D9cF65c55bac32B5d844;
     struct user {
         uint256 _usdtTokens;
         uint256 _daiTokens;
@@ -84,7 +92,10 @@ contract Treasury is Ownable, ERC20, IERC721Receiver {
         _mint(msg.sender, k);
     }
 
-    function createPosition() external onlyOwner returns (uint256) {
+    function createPositionOnUniswap(uint256 _amount0, uint256 _amount1)
+        internal
+        returns (uint256)
+    {
         IERC20(USDT).approve(
             address(nonfungiblePositionManager),
             _balanceOf(USDT)
@@ -101,8 +112,8 @@ contract Treasury is Ownable, ERC20, IERC721Receiver {
                 fee: 3000,
                 tickLower: (MIN_TICK / TICK_SPACING) * TICK_SPACING,
                 tickUpper: (MAX_TICK / TICK_SPACING) * TICK_SPACING,
-                amount0Desired: _balanceOf(USDT),
-                amount1Desired: _balanceOf(DAI),
+                amount0Desired: _amount0,
+                amount1Desired: _amount1,
                 amount0Min: 0,
                 amount1Min: 0,
                 recipient: address(this),
@@ -120,15 +131,72 @@ contract Treasury is Ownable, ERC20, IERC721Receiver {
         emit LiquidityMint(tokenId, liquidity, amount0, amount1);
         return liquidity;
     }
+
+    function addLiquidityOnSushiswap(
+        address _tokenA,
+        address _tokenB,
+        uint _amountA,
+        uint _amountB
+    ) internal returns(uint256, uint256){
+        IERC20(USDT).approve(ROUTER, _amountA);
+        IERC20(DAI).approve(ROUTER, _amountB);
+
+        (uint amountA, uint amountB, uint liquidity) = IUniswapV2Router(ROUTER)
+            .addLiquidity(
+                _tokenA,
+                _tokenB,
+                _amountA,
+                _amountB,
+                1,
+                1,
+                msg.sender,
+                block.timestamp
+            );
+
+        totalSupplyForSushiSwap += liquidity;
+        return(amountA,amountB);
+    }
+
+    function addLiquidityToProtocols() external onlyOwner {
+        uint256 ratioA = IERC20(USDT).balanceOf(address(this)) / 2;
+        uint256 ratioB = IERC20(DAI).balanceOf(address(this)) / 2;
+
+        addLiquidityOnSushiswap(USDT, DAI, ratioA, ratioB);
+        createPositionOnUniswap(
+            IERC20(USDT).balanceOf(address(this)),
+            IERC20(DAI).balanceOf(address(this))
+        );
+    }
+
     function withdrawLiquidityFromPool() external {
-        removeUniswapLiquidity();
+        removeUniswapLiquidity(msg.sender);
+        removerSushiSwapLiquidity(msg.sender);
     }
 
     function _balanceOf(address token) internal returns (uint256) {
         return IERC20(token).balanceOf(address(this));
     }
-    
-    function removeUniswapLiquidity() internal {
+
+    function removerSushiSwapLiquidity(address _caller) internal returns(uint, uint) {
+        address pair = IUniswapV2Factory(FACTORY).getPair(USDT, DAI);
+
+        uint liquidity = IERC20(pair).balanceOf(_caller);
+        IERC20(pair).approve(ROUTER, liquidity);
+        uint256 userShare = (liquidity * 1e18) / totalSupplyForSushiSwap;
+        (uint amountA, uint amountB) = IUniswapV2Router(ROUTER).removeLiquidity(
+            USDT,
+            DAI,
+            userShare,
+            1,
+            1,
+            _caller,
+            block.timestamp
+        );
+        totalSupplyForSushiSwap -= userShare;
+        return (amountA, amountB);
+    }
+
+    function removeUniswapLiquidity(address _caller) internal {
         uint256 _lpBalance = balanceOf(msg.sender);
         uint128 userShare;
         unchecked {
@@ -146,9 +214,7 @@ contract Treasury is Ownable, ERC20, IERC721Receiver {
 
         (uint256 amount0, uint256 amount1) = nonfungiblePositionManager
             .decreaseLiquidity(params);
-
+            _burn(_caller, userShare);
         emit withdrawLiquidity(amount0, amount1);
     }
-
-   
 }
