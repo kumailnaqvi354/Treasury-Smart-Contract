@@ -23,6 +23,7 @@ interface INonfungiblePositionManager {
         payable
         returns (uint tokenId, uint128 liquidity, uint amount0, uint amount1);
 
+
     struct IncreaseLiquidityParams {
         uint tokenId;
         uint amount0Desired;
@@ -47,6 +48,7 @@ interface INonfungiblePositionManager {
     function decreaseLiquidity(
         DecreaseLiquidityParams calldata params
     ) external payable returns (uint amount0, uint amount1);
+
 
     struct CollectParams {
         uint tokenId;
