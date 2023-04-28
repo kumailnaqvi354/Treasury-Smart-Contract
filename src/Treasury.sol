@@ -17,11 +17,10 @@ contract Treasury is Ownable, ERC20 {
 
     string public NAME = "Treasury Smart Contract";
 
-    ISwapRouter constant router =
-        ISwapRouter(0xE592427A0AEce92De3Edee1F18E0157C05861564);
-
-    address public USDT = 0xC2C527C0CACF457746Bd31B2a698Fe89de2b6d49;
-    address public DAI = 0x11fE4B6AE13d2a6055C8D9cF65c55bac32B5d844;
+    INonfungiblePositionManager public nonfungiblePositionManager =
+        INonfungiblePositionManager(0xC36442b4a4522E871399CD717aBDD847Ab11FE88);
+    address public constant USDT = 0xC2C527C0CACF457746Bd31B2a698Fe89de2b6d49;
+    address public constant DAI = 0x11fE4B6AE13d2a6055C8D9cF65c55bac32B5d844;
     struct user {
         uint256 _usdtTokens;
         uint256 _daiTokens;
@@ -63,6 +62,30 @@ contract Treasury is Ownable, ERC20 {
             userLiquidity[msg.sender] = _cache;
 
             _mint(msg.sender, _total);
+
+             INonfungiblePositionManager.MintParams
+            memory params = INonfungiblePositionManager.MintParams({
+                token0: USDT,
+                token1: DAI,
+                fee: 3000,
+                tickLower: (MIN_TICK / TICK_SPACING) * TICK_SPACING,
+                tickUpper: (MAX_TICK / TICK_SPACING) * TICK_SPACING,
+                amount0Desired: amount1,
+                amount1Desired: amount2,
+                amount0Min: 0,
+                amount1Min: 0,
+                recipient: address(this),
+                deadline: block.timestamp
+            });
+
         }
     }
+function mintLiquidity()internal{
+    
+        (tokenId, liquidity, amount0, amount1) = nonfungiblePositionManager.mint(
+            params
+        );
+
+}
+
 }

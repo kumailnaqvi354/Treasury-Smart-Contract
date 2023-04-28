@@ -10,5 +10,15 @@ describe("Treasury", function () {
   
       expect(await treasury.NAME()).to.equal("Treasury Smart Contract");
     });
+
+
+it("Should deposit function in contract ", async function () {
+    const Treasury = await ethers.getContractFactory("Treasury");
+    const treasury = await Treasury.deploy("50000000000000000000", "LPTokens", "LP");
+    await treasury.deployed();
+
+
+})
+
   });
   
