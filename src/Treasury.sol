@@ -29,14 +29,6 @@ contract Treasury is Ownable, ERC20, IERC721Receiver, ITreasury {
     INonfungiblePositionManager public nonfungiblePositionManager =
         INonfungiblePositionManager(0xC36442b4a4522E871399CD717aBDD847Ab11FE88);
 
-    event LiquidityMint(
-        uint tokenId,
-        uint128 liquidity,
-        uint amount0,
-        uint amount1
-    );
-    event withdrawLiquidity(uint amount0, uint amount1);
-
     constructor(
         string memory _name,
         string memory _symbol,
@@ -156,7 +148,7 @@ contract Treasury is Ownable, ERC20, IERC721Receiver, ITreasury {
         ) = nonfungiblePositionManager.mint(params);
         UniswapPositionTokenId = tokenId;
 
-        emit LiquidityMint(tokenId, liquidity, amount0, amount1);
+        emit ITreasury.LiquidityMint(tokenId, liquidity, amount0, amount1);
         return liquidity;
     }
 
@@ -262,6 +254,6 @@ contract Treasury is Ownable, ERC20, IERC721Receiver, ITreasury {
         (uint256 amount0, uint256 amount1) = nonfungiblePositionManager
             .decreaseLiquidity(params);
         _burn(_caller, userShare);
-        emit withdrawLiquidity(amount0, amount1);
+        emit ITreasury.withdrawLiquidity(amount0, amount1);
     }
 }
