@@ -12,5 +12,7 @@ interface ITreasury {
 
 function calculateAPY(address _caller) external view returns(uint256, uint256);
 function withdrawLiquidityFromPool() external;
+function setRatio(uint256[] calldata _value) external;
+
 
 }

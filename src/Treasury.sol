@@ -8,13 +8,11 @@ import "./Interfaces/IERC721.sol";
 import "./Interfaces/ISushiswapV2Router.sol";
 import "./Interfaces/ITreasury.sol";
 
-
 contract Treasury is Ownable, ERC20, IERC721Receiver, ITreasury {
-
     int24 private constant MIN_TICK = -887272;
     int24 private constant MAX_TICK = -MIN_TICK;
     int24 private constant TICK_SPACING = 60;
-    
+
     address public constant USDT = 0xC2C527C0CACF457746Bd31B2a698Fe89de2b6d49;
     address public constant DAI = 0x11fE4B6AE13d2a6055C8D9cF65c55bac32B5d844;
 
@@ -22,12 +20,11 @@ contract Treasury is Ownable, ERC20, IERC721Receiver, ITreasury {
         0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f;
     address private constant ROUTER =
         0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D;
-    
-    uint256 public dividendRatio;
+
+    uint256[] public dividendRatio;
     uint256 UniswapPositionTokenId;
     uint256 totalSupplyForSushiSwap;
     uint256 feeTier = 3000;
-
 
     INonfungiblePositionManager public nonfungiblePositionManager =
         INonfungiblePositionManager(0xC36442b4a4522E871399CD717aBDD847Ab11FE88);
@@ -40,9 +37,11 @@ contract Treasury is Ownable, ERC20, IERC721Receiver, ITreasury {
     );
     event withdrawLiquidity(uint amount0, uint amount1);
 
-    constructor(string memory _name, string memory _symbol, uint256 _tier)
-        ERC20(_name, _symbol)
-    {
+    constructor(
+        string memory _name,
+        string memory _symbol,
+        uint256 _tier
+    ) ERC20(_name, _symbol) {
         feeTier = _tier;
     }
 
@@ -66,7 +65,7 @@ contract Treasury is Ownable, ERC20, IERC721Receiver, ITreasury {
         address token1,
         uint256 amount0,
         uint256 amount1
-    ) external {
+    ) external virtual override {
         require(
             amount0 > 0 && amount1 > 0,
             "Amount should be greater than zero"
@@ -80,8 +79,9 @@ contract Treasury is Ownable, ERC20, IERC721Receiver, ITreasury {
         _mint(msg.sender, k);
     }
 
-    
-
+    // @notice Only Owner of contract can Call
+    // @notice add Liquidity from treasury to protocols
+    // @notice given USDT and DAI tokens are used
     function addLiquidityToProtocols() external virtual override onlyOwner {
         uint256 ratioA = IERC20(USDT).balanceOf(address(this)) / 2;
         uint256 ratioB = IERC20(DAI).balanceOf(address(this)) / 2;
@@ -93,20 +93,34 @@ contract Treasury is Ownable, ERC20, IERC721Receiver, ITreasury {
         );
     }
 
-    function calculateAPY(address _caller) external virtual override view returns(uint256, uint256){
-
+    // @notice Calculate max APY per given tokens Tokens
+    function calculateAPY(address _caller)
+        external
+        view
+        virtual
+        override
+        returns (uint256, uint256)
+    {
         uint maxFee0 = calculateAPYForUniswap(_caller);
         uint maxFee1 = calculateAPYForSushiswap(_caller);
         return (maxFee0, maxFee1);
     }
-    
-    function withdrawLiquidityFromPool() external virtual override{
+
+    // @notice Withdraw liquidity from liquidity pool
+    function withdrawLiquidityFromPool() external virtual override {
         removeUniswapLiquidity(msg.sender);
         removerSushiSwapLiquidity(msg.sender);
     }
 
-    
-function createPositionOnUniswap(uint256 _amount0, uint256 _amount1)
+    // @notice Withdraw liquidity from liquidity pool
+    function setRatio(uint256[] calldata _value) external virtual override onlyOwner{
+        require(_value.length > 0);
+        dividendRatio = _value;
+    } 
+
+    // @notice mint new postition on uniswap by given tokens
+    // @notice returns K value, for the new position
+    function createPositionOnUniswap(uint256 _amount0, uint256 _amount1)
         internal
         returns (uint256)
     {
@@ -146,18 +160,20 @@ function createPositionOnUniswap(uint256 _amount0, uint256 _amount1)
         return liquidity;
     }
 
-
+    // @notice Add liquidity On Sushiswap
+    // @notice takes 4 inputs, TOKEN0, Tokens1, and Amount0, Amount1
     function addLiquidityOnSushiswap(
         address _tokenA,
         address _tokenB,
         uint _amountA,
         uint _amountB
-    ) internal returns(uint256, uint256){
+    ) internal returns (uint256, uint256) {
         IERC20(USDT).approve(ROUTER, _amountA);
         IERC20(DAI).approve(ROUTER, _amountB);
 
-        (uint amountA, uint amountB, uint liquidity) = ISushiswapV2Router(ROUTER)
-            .addLiquidity(
+        (uint amountA, uint amountB, uint liquidity) = ISushiswapV2Router(
+            ROUTER
+        ).addLiquidity(
                 _tokenA,
                 _tokenB,
                 _amountA,
@@ -169,45 +185,64 @@ function createPositionOnUniswap(uint256 _amount0, uint256 _amount1)
             );
 
         totalSupplyForSushiSwap += liquidity;
-        return(amountA,amountB);
+        return (amountA, amountB);
     }
 
-
-    function calculateAPYForUniswap(address _caller) internal view returns(uint256){
+    // @notice calculate max apy for given user on Uniswap
+    function calculateAPYForUniswap(address _caller)
+        internal
+        view
+        returns (uint256)
+    {
         uint256 maxAPY = (balanceOf(_caller) / totalSupply()) * feeTier;
         return maxAPY;
     }
 
-    function calculateAPYForSushiswap(address _caller) internal view returns(uint256){
+    // @notice calculate max apy for given user on Sushiswap
+    function calculateAPYForSushiswap(address _caller)
+        internal
+        view
+        returns (uint256)
+    {
         address pair = ISushiswapV2Factory(FACTORY).getPair(USDT, DAI);
-        uint256 maxAPY = (IERC20(pair).balanceOf(_caller) / totalSupplyForSushiSwap) * 10000;
+        uint256 maxAPY = (IERC20(pair).balanceOf(_caller) /
+            totalSupplyForSushiSwap) * 10000;
         return maxAPY;
     }
-
 
     function _balanceOf(address token) internal returns (uint256) {
         return IERC20(token).balanceOf(address(this));
     }
 
-    function removerSushiSwapLiquidity(address _caller) internal returns(uint, uint) {
+    // @notice Remove Liquidity for given user
+    // @notice calculate ratio from the pool liquidity
+    // @notice Burn LPtoken and transfer liquidity tokens to user
+    function removerSushiSwapLiquidity(address _caller)
+        internal
+        returns (uint, uint)
+    {
         address pair = ISushiswapV2Factory(FACTORY).getPair(USDT, DAI);
 
         uint liquidity = IERC20(pair).balanceOf(_caller);
         IERC20(pair).approve(ROUTER, liquidity);
         uint256 userShare = (liquidity * 1e18) / totalSupplyForSushiSwap;
-        (uint amountA, uint amountB) = ISushiswapV2Router(ROUTER).removeLiquidity(
-            USDT,
-            DAI,
-            userShare,
-            1,
-            1,
-            _caller,
-            block.timestamp
-        );
+        (uint amountA, uint amountB) = ISushiswapV2Router(ROUTER)
+            .removeLiquidity(
+                USDT,
+                DAI,
+                userShare,
+                1,
+                1,
+                _caller,
+                block.timestamp
+            );
         totalSupplyForSushiSwap -= userShare;
         return (amountA, amountB);
     }
 
+    // @notice Remove Liquidity for given user
+    // @notice calculate ratio from the pool liquidity
+    // @notice Burn LPtoken and transfer liquidity tokens to user
     function removeUniswapLiquidity(address _caller) internal {
         uint256 _lpBalance = balanceOf(msg.sender);
         uint128 userShare;
@@ -226,7 +261,7 @@ function createPositionOnUniswap(uint256 _amount0, uint256 _amount1)
 
         (uint256 amount0, uint256 amount1) = nonfungiblePositionManager
             .decreaseLiquidity(params);
-            _burn(_caller, userShare);
+        _burn(_caller, userShare);
         emit withdrawLiquidity(amount0, amount1);
     }
 }
