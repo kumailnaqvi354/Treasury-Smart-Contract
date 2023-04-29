@@ -1,8 +1,6 @@
 pragma solidity ^0.8.0;
 
-
-
-interface IUniswapV2Router {
+interface ISushiswapV2Router {
     function addLiquidity(
         address tokenA,
         address tokenB,
@@ -25,6 +23,6 @@ interface IUniswapV2Router {
     ) external returns (uint amountA, uint amountB);
 }
 
-interface IUniswapV2Factory {
+interface ISushiswapV2Factory {
     function getPair(address token0, address token1) external view returns (address);
 }

@@ -3,31 +3,17 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "./IUniswap.sol";
-import "./IUniswapV2.sol";
+import "./Interfaces/IUniswap.sol";
+import "./Interfaces/IERC721.sol";
+import "./Interfaces/ISushiswapV2Router.sol";
 
-interface IERC721Receiver {
-    function onERC721Received(
-        address operator,
-        address from,
-        uint tokenId,
-        bytes calldata data
-    ) external returns (bytes4);
-}
 
 contract Treasury is Ownable, ERC20, IERC721Receiver {
-    using SafeMath for uint256;
 
-    uint256 public dividendRatio;
     int24 private constant MIN_TICK = -887272;
     int24 private constant MAX_TICK = -MIN_TICK;
     int24 private constant TICK_SPACING = 60;
-    uint256 UniswapPositionTokenId;
-    uint256 totalSupplyForSushiSwap;
-    string public NAME = "Treasury Smart Contract";
-
+    
     address public constant USDT = 0xC2C527C0CACF457746Bd31B2a698Fe89de2b6d49;
     address public constant DAI = 0x11fE4B6AE13d2a6055C8D9cF65c55bac32B5d844;
 
@@ -35,16 +21,15 @@ contract Treasury is Ownable, ERC20, IERC721Receiver {
         0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f;
     address private constant ROUTER =
         0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D;
+    
+    uint256 public dividendRatio;
+    uint256 UniswapPositionTokenId;
+    uint256 totalSupplyForSushiSwap;
+    uint256 feeTier = 3000;
+
 
     INonfungiblePositionManager public nonfungiblePositionManager =
         INonfungiblePositionManager(0xC36442b4a4522E871399CD717aBDD847Ab11FE88);
-
-    struct user {
-        uint256 _usdtTokens;
-        uint256 _daiTokens;
-    }
-
-    mapping(address => user) public userLiquidity;
 
     event LiquidityMint(
         uint tokenId,
@@ -54,9 +39,11 @@ contract Treasury is Ownable, ERC20, IERC721Receiver {
     );
     event withdrawLiquidity(uint amount0, uint amount1);
 
-    constructor(string memory _name, string memory _symbol)
+    constructor(string memory _name, string memory _symbol, uint256 _tier)
         ERC20(_name, _symbol)
-    {}
+    {
+        feeTier = _tier;
+    }
 
     function onERC721Received(
         address operator,
@@ -141,7 +128,7 @@ contract Treasury is Ownable, ERC20, IERC721Receiver {
         IERC20(USDT).approve(ROUTER, _amountA);
         IERC20(DAI).approve(ROUTER, _amountB);
 
-        (uint amountA, uint amountB, uint liquidity) = IUniswapV2Router(ROUTER)
+        (uint amountA, uint amountB, uint liquidity) = ISushiswapV2Router(ROUTER)
             .addLiquidity(
                 _tokenA,
                 _tokenB,
@@ -168,6 +155,24 @@ contract Treasury is Ownable, ERC20, IERC721Receiver {
         );
     }
 
+    function calculateAPY(address _caller) external view returns(uint256, uint256){
+
+        uint maxFee0 = calculateAPYForUniswap(_caller);
+        uint maxFee1 = calculateAPYForSushiswap(_caller);
+        return (maxFee0, maxFee1);
+    }
+
+    function calculateAPYForUniswap(address _caller) internal view returns(uint256){
+        uint256 maxAPY = (balanceOf(_caller) / totalSupply()) * feeTier;
+        return maxAPY;
+    }
+
+    function calculateAPYForSushiswap(address _caller) internal view returns(uint256){
+        address pair = ISushiswapV2Factory(FACTORY).getPair(USDT, DAI);
+        uint256 maxAPY = (IERC20(pair).balanceOf(_caller) / totalSupplyForSushiSwap) * 10000;
+        return maxAPY;
+    }
+
     function withdrawLiquidityFromPool() external {
         removeUniswapLiquidity(msg.sender);
         removerSushiSwapLiquidity(msg.sender);
@@ -178,12 +183,12 @@ contract Treasury is Ownable, ERC20, IERC721Receiver {
     }
 
     function removerSushiSwapLiquidity(address _caller) internal returns(uint, uint) {
-        address pair = IUniswapV2Factory(FACTORY).getPair(USDT, DAI);
+        address pair = ISushiswapV2Factory(FACTORY).getPair(USDT, DAI);
 
         uint liquidity = IERC20(pair).balanceOf(_caller);
         IERC20(pair).approve(ROUTER, liquidity);
         uint256 userShare = (liquidity * 1e18) / totalSupplyForSushiSwap;
-        (uint amountA, uint amountB) = IUniswapV2Router(ROUTER).removeLiquidity(
+        (uint amountA, uint amountB) = ISushiswapV2Router(ROUTER).removeLiquidity(
             USDT,
             DAI,
             userShare,
